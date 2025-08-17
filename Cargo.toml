@@ -1,0 +1,13 @@
+[package]
+name = "file-serve"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.4"
+tokio-util = { version = "0.7", features = ["io"] }
+tokio = { version = "1", features = ["full"] }
+mime_guess = "2.0"
+percent-encoding = "2.3"
+chrono = { version = "0.4", features = ["clock"] }
+get_if_addrs = "0.5"
