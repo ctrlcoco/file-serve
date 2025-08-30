@@ -1,58 +1,73 @@
-use std::{
-    env,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-    process,
-    time::SystemTime,
-};
-
 use axum::{
     body::Body,
-    extract::{Path as AxumPath, State},
-    http::{header, HeaderValue, StatusCode},
+    extract::{ConnectInfo, Path as AxumPath, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
     Router,
 };
+
 use chrono::{DateTime, Local};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+
+use std::{
+    env,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
+
 use tokio::{fs, io::AsyncReadExt};
+
 use tokio_util::io::ReaderStream;
+
+use base64::{engine::general_purpose::STANDARD, Engine};
+
+use qrcode::{render::svg, render::unicode, QrCode};
+
+use clap::{Arg, Command};
 
 #[derive(Clone)]
 struct AppState {
     root: PathBuf,
 }
 
+struct FileRow {
+    name: String,
+    size: u64,
+    modified: Option<SystemTime>,
+}
+
 #[tokio::main]
 async fn main() {
-    let mut root = PathBuf::new();
+    let matches = Command::new("file-serve")
+        .version("0.6")
+        .about("Terminal countdown timer with days, hours, minutes, seconds")
+        .arg(
+            Arg::new("port")
+                .short('p')
+                .long("port")
+                .value_name("P")
+                .help("Server port"),
+        )
+        .arg(
+            Arg::new("folder")
+                .short('f')
+                .long("folder")
+                .value_name("f")
+                .help("Share folder"),
+        )
+        .get_matches();
 
-    let args: Vec<String> = env::args().collect();
-    match args.len() {
-        1 => {
-            // Serve the directory where the command is launched
-            root = env::current_dir().expect("Failed to get current dir");
-        }
-        2 => {
-            let text: &str = &args[1];
+    let mut port = 8080; // default
+    if let Some(p) = matches.get_one::<String>("port") {
+        port = p.parse::<u16>().expect("port must be a number");
+    }
 
-            // checks commands
-            match text {
-                "--help" | "-h" => help(),
-                "--version" | "-v" => {
-                    println!("file_serve: {}", env!("CARGO_PKG_VERSION"));
-                }
-                _ => {
-                    root.push(text);
-                }
-            }
-        }
-
-        _ => {
-            panic!("Usage: cargo run PATH");
-        }
-    };
+    let mut root = env::current_dir().expect("Failed to get current dir");
+    if let Some(f) = matches.get_one::<String>("folder") {
+        root.push(f.as_str());
+    }
 
     let state = AppState { root };
 
@@ -60,62 +75,67 @@ async fn main() {
     let app = Router::new()
         .route("/", get(list_files))
         .route("/download/{name}", get(download_file))
-        .with_state(state);
+        .with_state(state.clone()); // clone to not consume
 
-    // Bind to 0.0.0.0 for LAN access
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(8080);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
+    let full_link = lan_urls(port);
+
     println!(
-        "Serving '{}' on:\n{}",
-        std::env::current_dir().unwrap().display(),
-        lan_urls(port)
+        "Serving '{}' on:\n{}\nPress Ctrl+C to stop.\n",
+        state.root.display(),
+        full_link
     );
 
-    println!("Press Ctrl+C to stop.");
+    show_qr_code(&full_link);
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .expect("Failed to bind port");
-
-    axum::serve(listener, app).await.unwrap();
-}
-
-fn help() {
-    println!(
-        "usage:
-    file_serve [path]  If path is empty uses cwd
-
-    [options]
-    -h | --help to get this message and exit
-    "
-    );
-    process::exit(0x0100);
+    match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        }
+        Err(_) => println!("Failed to bind to {}, port already in use.", addr),
+    }
 }
 
 fn lan_urls(port: u16) -> String {
     let mut out = String::new();
-    // TODO modify interfaces
-    // if let Ok(interfaces) = get_if_addrs::get_if_addrs() {
-    //     for interface in interfaces {
-    //         if interface.is_loopback() {
-    //             continue;
-    //         }
-    //         if let std::net::IpAddr::V4(v4) = interface.ip() {
-    //             out.push_str(&format!("  http://{}:{}\n", v4, port));
-    //         }
-    //     }
-    // }
+
+    if let Ok(interfaces) = get_if_addrs::get_if_addrs() {
+        for interface in interfaces {
+            if interface.is_loopback() {
+                continue;
+            }
+            if let std::net::IpAddr::V4(v4) = interface.ip() {
+                out.push_str(&format!("   http://{}:{}\n", v4, port));
+            }
+        }
+    }
     if out.is_empty() {
-        out.push_str(&format!("  http://127.0.0.1:{}\n", port));
+        out.push_str(&format!("   http://127.0.01:{}\n", port));
     }
     out
 }
 
-async fn list_files(State(state): State<AppState>) -> impl IntoResponse {
+async fn list_files(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // loggo le info del cliente
+    println!(
+        "[LIST] Client: {} | UA: {}",
+        addr,
+        headers
+            .get(header::USER_AGENT)
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("-")
+    );
+
     // Read current directory (non-recursive)
     let mut entries = match fs::read_dir(&state.root).await {
         Ok(rd) => rd,
@@ -152,12 +172,6 @@ async fn list_files(State(state): State<AppState>) -> impl IntoResponse {
     rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     (StatusCode::INTERNAL_SERVER_ERROR, Html(render_index(rows)))
-}
-
-struct FileRow {
-    name: String,
-    size: u64,
-    modified: Option<SystemTime>,
 }
 
 fn human_size(bytes: u64) -> String {
@@ -273,6 +287,9 @@ async fn download_file(
                 header::CONTENT_DISPOSITION,
                 HeaderValue::from_str(&disposition).unwrap(),
             );
+
+            // TODO scrivere log carino
+            println!("downloading file: {}", &path.display());
             res
         }
         Err((status, msg)) => (status, msg).into_response(),
@@ -306,5 +323,53 @@ async fn safe_open(root: &Path, target: &Path) -> Result<(fs::File, String), (St
 }
 
 fn error_page(msg: &str) -> String {
-    format!("<h1>Error</h1><p>{}</p>", html_escape(msg))
+    format!(
+        "<h1>Error while loading page.</h1><p>{}</p>",
+        html_escape(msg)
+    )
+}
+
+fn terminal_supports_images() -> Option<&'static str> {
+    match env::var("TERM_PROGRAM") {
+        Ok(val) if val == "iTerm.app" => return Some("iterm2"),
+        _ => {}
+    }
+
+    match env::var("TERM") {
+        Ok(val) if val.contains("kitty") => return Some("kitty"),
+        _ => {}
+    }
+
+    None
+}
+
+fn show_qr_code(text: &str) {
+    let code = QrCode::new(text).unwrap();
+
+    match terminal_supports_images() {
+        Some("iterm2") => {
+            // Render SVG and encode for iTerm2 inline image protocol
+            let svg = code.render::<svg::Color>().min_dimensions(200, 200).build();
+
+            let encoded = STANDARD.encode(svg.as_bytes());
+
+            println!(
+                "\x1b]1337;File=inline=1;width=auto;height=auto;preserveAspectRatio=1:{}\x07",
+                encoded
+            );
+        }
+        Some("kitty") => {
+            // Kitty uses its own graphics protocol
+            let svg = code.render::<svg::Color>().min_dimensions(200, 200).build();
+
+            let encoded = STANDARD.encode(svg.as_bytes());
+
+            println!("\x1b_Gf=100,t=d,A=T,width=200,height=200;{}\x1b\\", encoded);
+        }
+        _ => {
+            // Fallback to ASCII QR for others terminal
+            let ascii = code.render::<unicode::Dense1x2>().quiet_zone(true).build();
+            println!("{}", ascii);
+        }
+    }
 }
