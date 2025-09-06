@@ -29,6 +29,7 @@ struct FileRow {
     name: String,
     size: u64,
     modified: Option<SystemTime>,
+    is_dir: bool,
 }
 
 #[tokio::main]
@@ -67,7 +68,8 @@ async fn main() {
     // Build router
     let app = Router::new()
         .route("/", get(list_files))
-        .route("/download/{name}", get(download_file))
+        .route("/browse/{*path}", get(list_files))
+        .route("/download/{*path}", get(download_file))
         .with_state(state.clone()); // clone to not consume
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -119,6 +121,7 @@ async fn list_files(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
+    path: Option<AxumPath<String>>,
 ) -> impl IntoResponse {
     // TODO: log - client's info
     println!(
@@ -130,9 +133,16 @@ async fn list_files(
             .unwrap_or("-")
     );
 
+    // Determine the directory to list
+    let current_path = if let Some(ref path) = path {
+        state.root.join(path.as_str())
+    } else {
+        state.root.clone()
+    };
+
     // Read current directory (non-recursive)
     // TODO: add recurrency
-    let mut entries = match fs::read_dir(&state.root).await {
+    let mut entries = match fs::read_dir(&current_path).await {
         Ok(rd) => rd,
         Err(e) => {
             let msg = format!("Failed to read directory: {}", e);
@@ -151,22 +161,27 @@ async fn list_files(
             Ok(m) => m,
             Err(_) => continue,
         };
-        if !meta.is_file() {
-            continue;
-        }
-        let size = meta.len();
+        let is_dir = meta.is_dir();
+        let size = if is_dir { 0 } else { meta.len() };
         let modified: Option<SystemTime> = meta.modified().ok();
         rows.push(FileRow {
             name: file_name,
             size,
             modified,
+            is_dir,
         });
     }
 
-    // Sort by name ascending
-    rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    // Sort by name ascending, directories first
+    rows.sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            return b.is_dir.cmp(&a.is_dir); // directories first
+        }
+        a.name.to_lowercase().cmp(&b.name.to_lowercase())
+    });
 
-    (StatusCode::INTERNAL_SERVER_ERROR, Html(render_index(rows)))
+    let current_path_str = path.as_deref().map_or("", |v| v);
+    (StatusCode::OK, Html(render_index(rows, current_path_str)))
 }
 
 fn human_size(bytes: u64) -> String {
@@ -184,7 +199,7 @@ fn human_size(bytes: u64) -> String {
     }
 }
 
-fn render_index(rows: Vec<FileRow>) -> String {
+fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
     let mut body = String::new();
     for row in rows {
         let encoded = utf8_percent_encode(&row.name, NON_ALPHANUMERIC).to_string();
@@ -198,34 +213,74 @@ fn render_index(rows: Vec<FileRow>) -> String {
                 )
             })
             .unwrap_or_else(|| "-".to_string());
+
+        let size_str = if row.is_dir {
+            "<span style=\"color: #666;\">-</span>".to_string()
+        } else {
+            human_size(row.size)
+        };
+
+        let action = if row.is_dir {
+            let folder_path = if current_path.is_empty() {
+                encoded.clone()
+            } else {
+                format!("{}/{}", current_path, encoded)
+            };
+            format!("<a class=\"btn\" href=\"/browse/{}\">Open</a>", folder_path)
+        } else {
+            let file_path = if current_path.is_empty() {
+                encoded.clone()
+            } else {
+                format!("{}/{}", current_path, encoded)
+            };
+            format!(
+                "<a class=\"btn\" href=\"/download/{}\">Download</a>",
+                file_path
+            )
+        };
+
+        let name_display = if row.is_dir {
+            format!("📁 {}", html_escape(&row.name))
+        } else {
+            format!("📄 {}", html_escape(&row.name))
+        };
+
         body.push_str(&format!(
-            "<tr>\n  <td class=\"truncate\">{}</td>\n  <td>{}</td>\n  <td>{}</td>\n  <td><a class=\"btn\" href=\"/download/{}\">Download</a></td>\n</tr>",
-            html_escape(&row.name), human_size(row.size), modified_str, encoded
+            "<tr>\n  <td class=\"truncate\">{}</td>\n  <td>{}</td>\n  <td>{}</td>\n  <td>{}</td>\n</tr>",
+            name_display, size_str, modified_str, action
         ));
     }
 
-// TODO: usare un file per html
-// TODO: cambiare css
+    // Generate breadcrumb navigation
+    let breadcrumb = generate_breadcrumb(current_path);
+
+    // TODO: usare un file per html
+    // TODO: cambiare css
     format!(
         r#"<!doctype html>
             <html lang="en">
             <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>LAN File Server</title>
+            <title>LAN File Server{}</title>
             <style>
                 body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }}
                 h1 {{ margin-bottom: 1rem; }}
+                .breadcrumb {{ margin-bottom: 1rem; color: #666; }}
+                .breadcrumb a {{ color: #007bff; text-decoration: none; }}
+                .breadcrumb a:hover {{ text-decoration: underline; }}
                 table {{ width: 100%; border-collapse: collapse; }}
                 th, td {{ border-bottom: 1px solid #ddd; padding: 0.6rem; text-align: left; }}
                 th {{ background: #f7f7f7; position: sticky; top: 0; }}
                 .truncate {{ max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-                .btn {{ display: inline-block; padding: 0.4rem 0.8rem; border: 1px solid #333; border-radius: 8px; text-decoration: none; }}
+                .btn {{ display: inline-block; padding: 0.4rem 0.8rem; border: 1px solid #333; border-radius: 8px; text-decoration: none; background: #f8f9fa; color: #333; }}
+                .btn:hover {{ background: #e9ecef; }}
                 .footer {{ margin-top: 1rem; color: #666; font-size: 0.9rem; }}
             </style>
             </head>
             <body>
-            <h1>Files listing</h1>
+            <h1>Files listing{}</h1>
+            <div class="breadcrumb">{}</div>
             <table>
                 <thead>
                 <tr>
@@ -241,8 +296,52 @@ fn render_index(rows: Vec<FileRow>) -> String {
             </table>
             <div class="footer">Accessible over LAN. Keep this window running.</div>
             </body>
-            </html>"#
+            </html>"#,
+        if current_path.is_empty() {
+            "".to_string()
+        } else {
+            format!(" - {}", current_path)
+        },
+        if current_path.is_empty() {
+            "".to_string()
+        } else {
+            format!(" - {}", current_path)
+        },
+        breadcrumb
     )
+}
+
+fn generate_breadcrumb(current_path: &str) -> String {
+    if current_path.is_empty() {
+        return "<a href=\"/\">Home</a>".to_string();
+    }
+
+    let mut breadcrumb = String::from("<a href=\"/\">Home</a>");
+    let path_parts: Vec<&str> = current_path.split('/').filter(|s| !s.is_empty()).collect();
+
+    let mut current_breadcrumb_path = String::new();
+    for (i, part) in path_parts.iter().enumerate() {
+        current_breadcrumb_path.push_str("/");
+        current_breadcrumb_path.push_str(part);
+
+        let _encoded_part = utf8_percent_encode(part, NON_ALPHANUMERIC).to_string();
+        let encoded_path =
+            utf8_percent_encode(&current_breadcrumb_path, NON_ALPHANUMERIC).to_string();
+
+        breadcrumb.push_str(" / ");
+        if i == path_parts.len() - 1 {
+            // Last part is not clickable
+            breadcrumb.push_str(&html_escape(part));
+        } else {
+            breadcrumb.push_str(&format!(
+                "<a href=\"/browse{}\">{}</a>",
+                encoded_path,
+                html_escape(part)
+            ));
+        }
+    }
+
+    breadcrumb
 }
 
 fn html_escape(s: &str) -> String {
@@ -260,15 +359,16 @@ fn html_escape(s: &str) -> String {
 
 async fn download_file(
     State(state): State<AppState>,
-    AxumPath(name): AxumPath<String>,
+    AxumPath(path): AxumPath<String>,
 ) -> Response {
-    if name.contains('/') || name.contains('\\') {
-        return (StatusCode::BAD_REQUEST, "Invalid file name").into_response();
+    // Security check: prevent directory traversal attacks
+    if path.contains("..") || path.starts_with('/') || path.starts_with('\\') {
+        return (StatusCode::BAD_REQUEST, "Invalid file path").into_response();
     }
 
-    let path: PathBuf = state.root.join(&name);
+    let file_path: PathBuf = state.root.join(&path);
 
-    match safe_open(&state.root, &path).await {
+    match safe_open(&state.root, &file_path).await {
         Ok((file, mime)) => {
             let stream = ReaderStream::new(file);
             let body = Body::from_stream(stream);
@@ -279,14 +379,20 @@ async fn download_file(
                 HeaderValue::from_str(&mime)
                     .unwrap_or(HeaderValue::from_static("application/octet-stream")),
             );
-            let disposition = format!("attachment; filename=\"{}\"", name);
+
+            // Extract just the filename for the download
+            let filename = file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("download");
+            let disposition = format!("attachment; filename=\"{}\"", filename);
             headers.insert(
                 header::CONTENT_DISPOSITION,
                 HeaderValue::from_str(&disposition).unwrap(),
             );
 
             // TODO: scrivere log carino
-            println!("downloading file: {}", &path.display());
+            println!("downloading file: {}", &file_path.display());
             res
         }
         Err((status, msg)) => (status, msg).into_response(),
