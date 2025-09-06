@@ -15,6 +15,7 @@ use std::{
     env,
     net::SocketAddr,
     path::{Path, PathBuf},
+    sync::Mutex,
     time::SystemTime,
 };
 use tokio::{fs, io::AsyncReadExt};
@@ -23,6 +24,27 @@ use tokio_util::io::ReaderStream;
 #[derive(Clone)]
 struct AppState {
     root: PathBuf,
+}
+
+// Global template cache
+lazy_static::lazy_static! {
+    static ref TEMPLATE: Mutex<Option<String>> = Mutex::new(None);
+}
+
+fn load_template() -> Result<String, Box<dyn std::error::Error>> {
+    let mut template = TEMPLATE.lock().unwrap();
+
+    if template.is_none() {
+        let template_path = "templates/index.html";
+        let content = std::fs::read_to_string(template_path)
+            .map_err(|e| format!("Failed to read template file: {}", e))?;
+        *template = Some(content);
+    }
+
+    template
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "Template not loaded".into())
 }
 
 struct FileRow {
@@ -200,7 +222,7 @@ fn human_size(bytes: u64) -> String {
 }
 
 fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
-    let mut body = String::new();
+    let mut file_rows = String::new();
     for row in rows {
         let encoded = utf8_percent_encode(&row.name, NON_ALPHANUMERIC).to_string();
         let modified_str = row
@@ -245,7 +267,7 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
             format!("📄 {}", html_escape(&row.name))
         };
 
-        body.push_str(&format!(
+        file_rows.push_str(&format!(
             "<tr>\n  <td class=\"truncate\">{}</td>\n  <td>{}</td>\n  <td>{}</td>\n  <td>{}</td>\n</tr>",
             name_display, size_str, modified_str, action
         ));
@@ -254,61 +276,29 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
     // Generate breadcrumb navigation
     let breadcrumb = generate_breadcrumb(current_path);
 
-    // TODO: usare un file per html
-    // TODO: cambiare css
-    format!(
-        r#"<!doctype html>
-            <html lang="en">
-            <head>
-            <meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>LAN File Server{}</title>
-            <style>
-                body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }}
-                h1 {{ margin-bottom: 1rem; }}
-                .breadcrumb {{ margin-bottom: 1rem; color: #666; }}
-                .breadcrumb a {{ color: #007bff; text-decoration: none; }}
-                .breadcrumb a:hover {{ text-decoration: underline; }}
-                table {{ width: 100%; border-collapse: collapse; }}
-                th, td {{ border-bottom: 1px solid #ddd; padding: 0.6rem; text-align: left; }}
-                th {{ background: #f7f7f7; position: sticky; top: 0; }}
-                .truncate {{ max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-                .btn {{ display: inline-block; padding: 0.4rem 0.8rem; border: 1px solid #333; border-radius: 8px; text-decoration: none; background: #f8f9fa; color: #333; }}
-                .btn:hover {{ background: #e9ecef; }}
-                .footer {{ margin-top: 1rem; color: #666; font-size: 0.9rem; }}
-            </style>
-            </head>
-            <body>
-            <h1>Files listing{}</h1>
-            <div class="breadcrumb">{}</div>
-            <table>
-                <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Size</th>
-                    <th>Modified</th>
-                    <th>Action</th>
-                </tr>
-                </thead>
-                <tbody>
-                {body}
-                </tbody>
-            </table>
-            <div class="footer">Accessible over LAN. Keep this window running.</div>
-            </body>
-            </html>"#,
-        if current_path.is_empty() {
-            "".to_string()
-        } else {
-            format!(" - {}", current_path)
-        },
-        if current_path.is_empty() {
-            "".to_string()
-        } else {
-            format!(" - {}", current_path)
-        },
-        breadcrumb
-    )
+    // Load and render template
+    match load_template() {
+        Ok(template) => {
+            let title_suffix = if current_path.is_empty() {
+                "".to_string()
+            } else {
+                format!(" - {}", current_path)
+            };
+
+            template
+                .replace("{title_suffix}", &title_suffix)
+                .replace("{breadcrumb}", &breadcrumb)
+                .replace("{file_rows}", &file_rows)
+        }
+        Err(e) => {
+            eprintln!("Error loading template: {}", e);
+            // Fallback to simple error page
+            format!(
+                "<h1>Error</h1><p>Failed to load template: {}</p>",
+                html_escape(&e.to_string())
+            )
+        }
+    }
 }
 
 fn generate_breadcrumb(current_path: &str) -> String {

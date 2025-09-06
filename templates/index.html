@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LAN File Server{title_suffix}</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            margin: 2rem;
+        }
+
+        h1 {
+            margin-bottom: 1rem;
+        }
+
+        .breadcrumb {
+            margin-bottom: 1rem;
+            color: #666;
+        }
+
+        .breadcrumb a {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border-bottom: 1px solid #ddd;
+            padding: 0.6rem;
+            text-align: left;
+        }
+
+        th {
+            background: #f7f7f7;
+            position: sticky;
+            top: 0;
+        }
+
+        .truncate {
+            max-width: 40vw;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.4rem 0.8rem;
+            border: 1px solid #333;
+            border-radius: 8px;
+            text-decoration: none;
+            background: #f8f9fa;
+            color: #333;
+        }
+
+        .btn:hover {
+            background: #e9ecef;
+        }
+
+        .footer {
+            margin-top: 1rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Files listing{title_suffix}</h1>
+    <div class="breadcrumb">{breadcrumb}</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {file_rows}
+        </tbody>
+    </table>
+    <div class="footer">Accessible over LAN. Keep this window running.</div>
+</body>
+
+</html>
