@@ -6,26 +6,19 @@ use axum::{
     routing::get,
     Router,
 };
-
+use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{DateTime, Local};
+use clap::{Arg, Command};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-
+use qrcode::{render::svg, render::unicode, QrCode};
 use std::{
     env,
     net::SocketAddr,
     path::{Path, PathBuf},
     time::SystemTime,
 };
-
 use tokio::{fs, io::AsyncReadExt};
-
 use tokio_util::io::ReaderStream;
-
-use base64::{engine::general_purpose::STANDARD, Engine};
-
-use qrcode::{render::svg, render::unicode, QrCode};
-
-use clap::{Arg, Command};
 
 #[derive(Clone)]
 struct AppState {
@@ -42,7 +35,7 @@ struct FileRow {
 async fn main() {
     let matches = Command::new("file-serve")
         .version("0.6")
-        .about("Terminal countdown timer with days, hours, minutes, seconds")
+        .about("Serve files through your LAN")
         .arg(
             Arg::new("port")
                 .short('p')
@@ -112,6 +105,7 @@ fn lan_urls(port: u16) -> String {
             }
             if let std::net::IpAddr::V4(v4) = interface.ip() {
                 out.push_str(&format!("   http://{}:{}\n", v4, port));
+                break; // use the first found
             }
         }
     }
@@ -126,7 +120,7 @@ async fn list_files(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // loggo le info del cliente
+    // TODO: log - client's info
     println!(
         "[LIST] Client: {} | UA: {}",
         addr,
@@ -137,6 +131,7 @@ async fn list_files(
     );
 
     // Read current directory (non-recursive)
+    // TODO: add recurrency
     let mut entries = match fs::read_dir(&state.root).await {
         Ok(rd) => rd,
         Err(e) => {
@@ -209,42 +204,44 @@ fn render_index(rows: Vec<FileRow>) -> String {
         ));
     }
 
+// TODO: usare un file per html
+// TODO: cambiare css
     format!(
         r#"<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LAN File Server</title>
-  <style>
-    body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }}
-    h1 {{ margin-bottom: 1rem; }}
-    table {{ width: 100%; border-collapse: collapse; }}
-    th, td {{ border-bottom: 1px solid #ddd; padding: 0.6rem; text-align: left; }}
-    th {{ background: #f7f7f7; position: sticky; top: 0; }}
-    .truncate {{ max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-    .btn {{ display: inline-block; padding: 0.4rem 0.8rem; border: 1px solid #333; border-radius: 8px; text-decoration: none; }}
-    .footer {{ margin-top: 1rem; color: #666; font-size: 0.9rem; }}
-  </style>
-</head>
-<body>
-  <h1>Files listing</h1>
-  <table>
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Size</th>
-        <th>Modified</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      {body}
-    </tbody>
-  </table>
-  <div class="footer">Accessible over LAN. Keep this window running.</div>
-</body>
-</html>"#
+            <html lang="en">
+            <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>LAN File Server</title>
+            <style>
+                body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }}
+                h1 {{ margin-bottom: 1rem; }}
+                table {{ width: 100%; border-collapse: collapse; }}
+                th, td {{ border-bottom: 1px solid #ddd; padding: 0.6rem; text-align: left; }}
+                th {{ background: #f7f7f7; position: sticky; top: 0; }}
+                .truncate {{ max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+                .btn {{ display: inline-block; padding: 0.4rem 0.8rem; border: 1px solid #333; border-radius: 8px; text-decoration: none; }}
+                .footer {{ margin-top: 1rem; color: #666; font-size: 0.9rem; }}
+            </style>
+            </head>
+            <body>
+            <h1>Files listing</h1>
+            <table>
+                <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Size</th>
+                    <th>Modified</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody>
+                {body}
+                </tbody>
+            </table>
+            <div class="footer">Accessible over LAN. Keep this window running.</div>
+            </body>
+            </html>"#
     )
 }
 
@@ -269,7 +266,7 @@ async fn download_file(
         return (StatusCode::BAD_REQUEST, "Invalid file name").into_response();
     }
 
-    let path = state.root.join(&name);
+    let path: PathBuf = state.root.join(&name);
 
     match safe_open(&state.root, &path).await {
         Ok((file, mime)) => {
@@ -288,7 +285,7 @@ async fn download_file(
                 HeaderValue::from_str(&disposition).unwrap(),
             );
 
-            // TODO scrivere log carino
+            // TODO: scrivere log carino
             println!("downloading file: {}", &path.display());
             res
         }
@@ -368,8 +365,8 @@ fn show_qr_code(text: &str) {
         }
         _ => {
             // Fallback to ASCII QR for others terminal
-            let ascii = code.render::<unicode::Dense1x2>().quiet_zone(true).build();
-            println!("{}", ascii);
+            let ascii_qr = code.render::<unicode::Dense1x2>().quiet_zone(true).build();
+            println!("{}", ascii_qr);
         }
     }
 }
