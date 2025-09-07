@@ -9,6 +9,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{DateTime, Local};
 use clap::{Arg, Command};
+use log;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use qrcode::{render::svg, render::unicode, QrCode};
 use std::{
@@ -18,7 +19,6 @@ use std::{
     sync::Mutex,
     time::SystemTime,
 };
-use log;
 use tokio::{fs, io::AsyncReadExt};
 use tokio_util::io::ReaderStream;
 
@@ -55,7 +55,7 @@ fn start_logging(output_path: &str) {
     log4rs::init_config(config).unwrap();
 }
 
-fn human_size(bytes: u64) -> String {
+fn bytes_to_human_size(bytes: u64) -> String {
     const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
     let mut size = bytes as f64;
     let mut unit = 0;
@@ -135,7 +135,7 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let full_link = lan_urls(port);
+    let full_link = get_lan_url(port);
 
     println!(
         "Serving '{}' on:\n{}\nPress Ctrl+C to stop.\n",
@@ -154,11 +154,11 @@ async fn main() {
             .await
             .unwrap();
         }
-        Err(_) => log::error!("Failed to bind to {}, port already in use.", addr),
+        Err(err) => log::error!("Failed to run TCP listener {}\n{}.", addr, err),
     }
 }
 
-fn lan_urls(port: u16) -> String {
+fn get_lan_url(port: u16) -> String {
     let mut out = String::new();
 
     if let Ok(interfaces) = get_if_addrs::get_if_addrs() {
@@ -260,7 +260,7 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
         let size_str = if row.is_dir {
             "<span style=\"color: #666;\">-</span>".to_string()
         } else {
-            human_size(row.size)
+            bytes_to_human_size(row.size)
         };
 
         let action = if row.is_dir {
@@ -309,17 +309,18 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
             let back_button = if current_path.is_empty() {
                 String::new()
             } else {
-                let mut parts: Vec<&str> = current_path
-                    .split('/')
-                    .filter(|s| !s.is_empty())
-                    .collect();
+                let mut parts: Vec<&str> =
+                    current_path.split('/').filter(|s| !s.is_empty()).collect();
                 let _ = parts.pop();
                 let href = if parts.is_empty() {
                     "/".to_string()
                 } else {
                     format!("/browse/{}", parts.join("/"))
                 };
-                format!("<p><a class=\"btn btn-secondary\" href=\"{}\">← Back</a></p>", href)
+                format!(
+                    "<p><a class=\"btn btn-secondary\" href=\"{}\">← Back</a></p>",
+                    href
+                )
             };
 
             template
