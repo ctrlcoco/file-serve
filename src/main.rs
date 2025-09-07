@@ -18,12 +18,56 @@ use std::{
     sync::Mutex,
     time::SystemTime,
 };
+use log::{error, info};
 use tokio::{fs, io::AsyncReadExt};
 use tokio_util::io::ReaderStream;
 
 #[derive(Clone)]
 struct AppState {
     root: PathBuf,
+}
+
+struct FileRow {
+    name: String,
+    size: u64,
+    modified: Option<SystemTime>,
+    is_dir: bool,
+}
+
+fn start_logging(output_path: &str) {
+    use log::LevelFilter;
+    use log4rs::append::file::FileAppender;
+    use log4rs::config::{Appender, Config, Root};
+    use log4rs::encode::pattern::PatternEncoder;
+
+    let logfile = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(
+            "[{d(%d-%m-%y %H:%M:%S)}] {l} - {m}{n}",
+        )))
+        .build(output_path)
+        .unwrap();
+
+    let config = Config::builder()
+        .appender(Appender::builder().build("logfile", Box::new(logfile)))
+        .build(Root::builder().appender("logfile").build(LevelFilter::Info))
+        .unwrap();
+
+    log4rs::init_config(config).unwrap();
+}
+
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[unit])
+    } else {
+        format!("{:.2} {}", size, UNITS[unit])
+    }
 }
 
 // Global template cache
@@ -47,15 +91,10 @@ fn load_template() -> Result<String, Box<dyn std::error::Error>> {
         .ok_or_else(|| "Template not loaded".into())
 }
 
-struct FileRow {
-    name: String,
-    size: u64,
-    modified: Option<SystemTime>,
-    is_dir: bool,
-}
-
 #[tokio::main]
 async fn main() {
+    start_logging("output/output.log");
+
     let matches = Command::new("file-serve")
         .version("0.6")
         .about("Serve files through your LAN")
@@ -115,7 +154,7 @@ async fn main() {
             .await
             .unwrap();
         }
-        Err(_) => println!("Failed to bind to {}, port already in use.", addr),
+        Err(_) => error!("Failed to bind to {}, port already in use.", addr),
     }
 }
 
@@ -145,8 +184,7 @@ async fn list_files(
     headers: HeaderMap,
     path: Option<AxumPath<String>>,
 ) -> impl IntoResponse {
-    // TODO: log - client's info
-    println!(
+    info!(
         "[LIST] Client: {} | UA: {}",
         addr,
         headers
@@ -162,8 +200,6 @@ async fn list_files(
         state.root.clone()
     };
 
-    // Read current directory (non-recursive)
-    // TODO: add recurrency
     let mut entries = match fs::read_dir(&current_path).await {
         Ok(rd) => rd,
         Err(e) => {
@@ -204,21 +240,6 @@ async fn list_files(
 
     let current_path_str = path.as_deref().map_or("", |v| v);
     (StatusCode::OK, Html(render_index(rows, current_path_str)))
-}
-
-fn human_size(bytes: u64) -> String {
-    const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
-    let mut size = bytes as f64;
-    let mut unit = 0;
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{} {}", bytes, UNITS[unit])
-    } else {
-        format!("{:.2} {}", size, UNITS[unit])
-    }
 }
 
 fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
@@ -280,7 +301,7 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
     match load_template() {
         Ok(template) => {
             let title_suffix = if current_path.is_empty() {
-                "".to_string()
+                " - home".to_string()
             } else {
                 format!(" - {}", current_path)
             };
@@ -291,7 +312,7 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
                 .replace("{file_rows}", &file_rows)
         }
         Err(e) => {
-            eprintln!("Error loading template: {}", e);
+            error!("Error loading template: {}", e);
             // Fallback to simple error page
             format!(
                 "<h1>Error</h1><p>Failed to load template: {}</p>",
@@ -302,11 +323,12 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
 }
 
 fn generate_breadcrumb(current_path: &str) -> String {
+    let mut breadcrumb = String::from("<a href=\"/\">Home</a>");
+
     if current_path.is_empty() {
-        return "<a href=\"/\">Home</a>".to_string();
+        return breadcrumb;
     }
 
-    let mut breadcrumb = String::from("<a href=\"/\">Home</a>");
     let path_parts: Vec<&str> = current_path.split('/').filter(|s| !s.is_empty()).collect();
 
     let mut current_breadcrumb_path = String::new();
@@ -381,8 +403,7 @@ async fn download_file(
                 HeaderValue::from_str(&disposition).unwrap(),
             );
 
-            // TODO: scrivere log carino
-            println!("downloading file: {}", &file_path.display());
+            info!("downloading file: {}", &file_path.display());
             res
         }
         Err((status, msg)) => (status, msg).into_response(),
