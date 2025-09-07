@@ -137,6 +137,12 @@
             transform: translateY(1px);
         }
 
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
         .footer {
             margin-top: 1rem;
             color: var(--muted);
@@ -165,6 +171,7 @@
     <div class="container">
         <h1>Files listing{title_suffix}</h1>
         <div class="breadcrumb">{breadcrumb}</div>
+        {back_button}
         <div class="card table-wrap">
             <table>
                 <thead>

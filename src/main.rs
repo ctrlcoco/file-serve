@@ -18,7 +18,7 @@ use std::{
     sync::Mutex,
     time::SystemTime,
 };
-use log::{error, info};
+use log;
 use tokio::{fs, io::AsyncReadExt};
 use tokio_util::io::ReaderStream;
 
@@ -154,7 +154,7 @@ async fn main() {
             .await
             .unwrap();
         }
-        Err(_) => error!("Failed to bind to {}, port already in use.", addr),
+        Err(_) => log::error!("Failed to bind to {}, port already in use.", addr),
     }
 }
 
@@ -184,7 +184,7 @@ async fn list_files(
     headers: HeaderMap,
     path: Option<AxumPath<String>>,
 ) -> impl IntoResponse {
-    info!(
+    log::info!(
         "[LIST] Client: {} | UA: {}",
         addr,
         headers
@@ -305,14 +305,31 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
             } else {
                 format!(" - {}", current_path)
             };
+            // Compute back button (only if inside a subfolder)
+            let back_button = if current_path.is_empty() {
+                String::new()
+            } else {
+                let mut parts: Vec<&str> = current_path
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let _ = parts.pop();
+                let href = if parts.is_empty() {
+                    "/".to_string()
+                } else {
+                    format!("/browse/{}", parts.join("/"))
+                };
+                format!("<p><a class=\"btn btn-secondary\" href=\"{}\">← Back</a></p>", href)
+            };
 
             template
                 .replace("{title_suffix}", &title_suffix)
                 .replace("{breadcrumb}", &breadcrumb)
+                .replace("{back_button}", &back_button)
                 .replace("{file_rows}", &file_rows)
         }
         Err(e) => {
-            error!("Error loading template: {}", e);
+            log::error!("Error loading template: {}", e);
             // Fallback to simple error page
             format!(
                 "<h1>Error</h1><p>Failed to load template: {}</p>",
@@ -403,7 +420,7 @@ async fn download_file(
                 HeaderValue::from_str(&disposition).unwrap(),
             );
 
-            info!("downloading file: {}", &file_path.display());
+            log::info!("downloading file: {}", &file_path.display());
             res
         }
         Err((status, msg)) => (status, msg).into_response(),
