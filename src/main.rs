@@ -93,7 +93,7 @@ fn load_template() -> Result<String, Box<dyn std::error::Error>> {
 
 #[tokio::main]
 async fn main() {
-    start_logging("output/output.log");
+    start_logging("logs/file_serve.log");
 
     let matches = Command::new("file-serve")
         .version("0.6")

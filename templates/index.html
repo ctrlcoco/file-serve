@@ -6,22 +6,64 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>LAN File Server{title_suffix}</title>
     <style>
+        :root {
+            --bg: #1e1e1e;         /* Dark background */
+            --card: #2a2a2a;       /* Card / table background */
+            --text: #e0e0e0;       /* Main text */
+            --muted: #9ca3af;      /* Muted text */
+            --border: #3a3a3a;     /* Borders */
+            --primary: #d39b47;    /* Gold accent (header/buttons) */
+            --primary-600: #b17f33;/* Darker gold for hover/border */
+            --row-alt: #242424;    /* Alternate row background */
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #f9f9f9;
+                --card: #ffffff;
+                --text: #1f1f1f;
+                --muted: #6b7280;
+                --border: #e0e0e0;
+                --primary: #d39b47;   /* Keep accent consistent */
+                --primary-600: #b17f33;
+                --row-alt: #f2f2f2;
+            }
+        }
+
+
+        html,
+        body {
+            height: 100%;
+        }
+
         body {
             font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-            margin: 2rem;
+            margin: 0;
+            padding: 0 1rem;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .container {
+            max-width: 980px;
+            margin: 2rem auto;
         }
 
         h1 {
-            margin-bottom: 1rem;
+            margin: 0 0 0.75rem 0;
+            font-size: 1.5rem;
+            font-weight: 700;
         }
 
         .breadcrumb {
             margin-bottom: 1rem;
-            color: #666;
+            color: var(--muted);
+            overflow-x: auto;
+            white-space: nowrap;
         }
 
         .breadcrumb a {
-            color: #007bff;
+            color: var(--primary);
             text-decoration: none;
         }
 
@@ -29,49 +71,117 @@
             text-decoration: underline;
         }
 
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.05);
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
         }
 
-        th,
-        td {
-            border-bottom: 1px solid #ddd;
-            padding: 0.6rem;
-            text-align: left;
-        }
-
-        th {
-            background: #f7f7f7;
+        thead th {
+            background: transparent;
             position: sticky;
             top: 0;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--muted);
+            padding: 0.9rem 1rem;
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(4px);
+        }
+
+        tbody td {
+            padding: 0.9rem 1rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        tbody tr:nth-child(even) {
+            background: var(--row-alt);
+        }
+
+        .truncate {
+            max-width: 52vw;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.45rem 0.8rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            background: var(--primary);
+            color: #fff;
+            border: 1px solid var(--primary-600);
+            transition: transform 0.05s ease, filter 0.15s ease;
+            will-change: transform;
+        }
+
+        .btn:hover {
+            filter: brightness(1.05);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
         }
 
         .footer {
             margin-top: 1rem;
-            color: #666;
+            color: var(--muted);
             font-size: 0.9rem;
+            text-align: center;
+        }
+
+        @media (max-width: 640px) {
+            .truncate {
+                max-width: 60vw;
+            }
+
+            thead th,
+            tbody td {
+                padding: 0.8rem;
+            }
+
+            h1 {
+                font-size: 1.25rem;
+            }
         }
     </style>
 </head>
 
 <body>
-    <h1>Files listing{title_suffix}</h1>
-    <div class="breadcrumb">{breadcrumb}</div>
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Size</th>
-                <th>Modified</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {file_rows}
-        </tbody>
-    </table>
-    <div class="footer">Accessible over LAN.</div>
+    <div class="container">
+        <h1>Files listing{title_suffix}</h1>
+        <div class="breadcrumb">{breadcrumb}</div>
+        <div class="card table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Size</th>
+                        <th>Modified</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {file_rows}
+                </tbody>
+            </table>
+        </div>
+        <div class="footer">Accessible over LAN.</div>
+    </div>
 </body>
 
 </html>
