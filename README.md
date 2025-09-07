@@ -1,17 +1,22 @@
 # file-serve
 
-Transfer files via LAN, pointlessly written in rust.
+Transfer files via LAN, pointlessly written in rust with [axum](https://docs.rs/axum/latest/axum/).
 
 ---
 
 ## Usage
 
 ```
-file_serve [path]  If path is empty uses cwd
+Usage: file-serve [OPTIONS]
 
-[options]
--h | --help to get this message and exit
+Options:
+  -p, --port <P>    Server port
+  -f, --folder <f>  Share folder
+  -h, --help        Print help
+  -V, --version     Print version
 ```
+
+Navigate to the shown link. 
 
 ---
 
@@ -22,9 +27,9 @@ file_serve [path]  If path is empty uses cwd
 2. Clone the repo.
    ```
    git clone https://github.com/ctrlcoco/file-serve.git
-   cd ifile-serve
+   cd file-serve
    ```
-3. Build the program (optionally with <ins>build.sh</ins>, read it before execution).
+3. Build the program.
    ```
    cargo build --release
    ```
@@ -33,5 +38,5 @@ file_serve [path]  If path is empty uses cwd
 
 ## Reporting a Vulnerability
 
-If you want to disclose a vulnerability, email
+If you want to disclose a vulnerability, please email
 to [cocosoftware8@gmail.com]("mailto:cocosoftware8@gmail.com?subject=Vulnerability")

@@ -103,18 +103,25 @@ async fn main() {
                 .short('p')
                 .long("port")
                 .value_name("P")
-                .help("Server port"),
+                .help("Server port, defaults to 8080."),
         )
         .arg(
             Arg::new("folder")
                 .short('f')
                 .long("folder")
                 .value_name("f")
-                .help("Share folder"),
+                .help("Folder to be served, default is current folder."),
+        )
+        .arg(
+            Arg::new("interface")
+                .short('i')
+                .long("interface")
+                .value_name("i")
+                .help("Interface to bind, default is first occurring interface."),
         )
         .get_matches();
 
-    let mut port = 8080; // default
+    let mut port = 8080; // default port
     if let Some(p) = matches.get_one::<String>("port") {
         port = p.parse::<u16>().expect("port must be a number");
     }
@@ -135,10 +142,17 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let full_link = get_lan_url(port);
+    let mut full_link = "".to_string();
+    if let Some(f) = matches.get_one::<String>("interface") {
+        //full_link.push(f.as_str().parse().unwrap());
+
+        full_link = format!("http://{}:{}\n", f, port);
+    } else {
+        get_lan_url(port);
+    }
 
     println!(
-        "Serving '{}' on:\n{}\nPress Ctrl+C to stop.\n",
+        "Serving '{}' on:\n    {}\nPress Ctrl+C to stop.\n",
         state.root.display(),
         full_link
     );
@@ -167,13 +181,14 @@ fn get_lan_url(port: u16) -> String {
                 continue;
             }
             if let std::net::IpAddr::V4(v4) = interface.ip() {
-                out.push_str(&format!("   http://{}:{}\n", v4, port));
+                out.push_str(&format!("http://{}:{}\n", v4, port));
                 break; // use the first found
             }
         }
     }
+    // loopback for testing purpose
     if out.is_empty() {
-        out.push_str(&format!("   http://127.0.01:{}\n", port));
+        out.push_str(&format!("http://127.0.01:{}\n", port));
     }
     out
 }
@@ -246,6 +261,19 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
     let mut file_rows = String::new();
     for row in rows {
         let encoded = utf8_percent_encode(&row.name, NON_ALPHANUMERIC).to_string();
+
+        let name_display = if row.is_dir {
+            format!("📁 {}", html_escape(&row.name))
+        } else {
+            format!("📄 {}", html_escape(&row.name))
+        };
+
+        let size_str = if row.is_dir {
+            "-".to_string()
+        } else {
+            bytes_to_human_size(row.size)
+        };
+
         let modified_str = row
             .modified
             .and_then(|st| {
@@ -257,35 +285,22 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
             })
             .unwrap_or_else(|| "-".to_string());
 
-        let size_str = if row.is_dir {
-            "<span style=\"color: #666;\">-</span>".to_string()
+        let element_path = if current_path.is_empty() {
+            encoded.clone()
         } else {
-            bytes_to_human_size(row.size)
+            format!("{}/{}", current_path, encoded)
         };
 
         let action = if row.is_dir {
-            let folder_path = if current_path.is_empty() {
-                encoded.clone()
-            } else {
-                format!("{}/{}", current_path, encoded)
-            };
-            format!("<a class=\"btn\" href=\"/browse/{}\">Open</a>", folder_path)
+            format!(
+                "<a class=\"btn\" href=\"/browse/{}\">Open</a>",
+                element_path
+            )
         } else {
-            let file_path = if current_path.is_empty() {
-                encoded.clone()
-            } else {
-                format!("{}/{}", current_path, encoded)
-            };
             format!(
                 "<a class=\"btn\" href=\"/download/{}\">Download</a>",
-                file_path
+                element_path
             )
-        };
-
-        let name_display = if row.is_dir {
-            format!("📁 {}", html_escape(&row.name))
-        } else {
-            format!("📄 {}", html_escape(&row.name))
         };
 
         file_rows.push_str(&format!(
@@ -446,12 +461,22 @@ async fn safe_open(root: &Path, target: &Path) -> Result<(fs::File, String), (St
         .map_err(|_| (StatusCode::NOT_FOUND, "File not found".to_string()))?;
 
     let mut _buf = [0u8; 0];
-    let _ = f.read(&mut _buf).await;
+    match f.read(&mut _buf).await {
+        Ok(_) => {
+            let mime = mime_guess::from_path(&canonical_target)
+                .first_or_octet_stream()
+                .to_string();
+            Ok((f, mime))
+        }
 
-    let mime = mime_guess::from_path(&canonical_target)
-        .first_or_octet_stream()
-        .to_string();
-    Ok((f, mime))
+        Err(err) => {
+            log::error!("cannot open file {}\n{}", &canonical_root.display(), err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Cannot open desired file.".to_string(),
+            ))
+        }
+    }
 }
 
 fn error_page(msg: &str) -> String {
@@ -493,7 +518,6 @@ fn show_qr_code(text: &str) {
         Some("kitty") => {
             // Kitty uses its own graphics protocol
             let svg = code.render::<svg::Color>().min_dimensions(200, 200).build();
-
             let encoded = STANDARD.encode(svg.as_bytes());
 
             println!("\x1b_Gf=100,t=d,A=T,width=200,height=200;{}\x1b\\", encoded);
