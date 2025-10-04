@@ -38,12 +38,14 @@ struct FileRow {
 
 // Global template cache
 lazy_static::lazy_static! {
-    static ref TEMPLATE: Mutex<Option<String>> = Mutex::new(None);
+    static ref MAIN_TEMPLATE: Mutex<Option<String>> = Mutex::new(None);
+    static ref ERROR_TEMPLATE: Mutex<Option<String>> = Mutex::new(None);
 }
 
 fn load_template() -> Result<String, Box<dyn std::error::Error>> {
-    let mut template = TEMPLATE.lock().unwrap();
+    let mut template = MAIN_TEMPLATE.lock().unwrap();
 
+    // if not cached load it
     if template.is_none() {
         let template_path = "templates/index.html";
         let content = std::fs::read_to_string(template_path)
@@ -55,6 +57,22 @@ fn load_template() -> Result<String, Box<dyn std::error::Error>> {
         .as_ref()
         .cloned()
         .ok_or_else(|| "Template not loaded".into())
+}
+
+fn load_error_template() -> Result<String, Box<dyn std::error::Error>> {
+    let mut template = ERROR_TEMPLATE.lock().unwrap();
+
+    if template.is_none() {
+        let template_path = "templates/error.html";
+        let content = std::fs::read_to_string(template_path)
+            .map_err(|e| format!("Failed to read error template file: {}", e))?;
+        *template = Some(content);
+    }
+
+    template
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "Error template not loaded".into())
 }
 
 #[tokio::main]
@@ -115,8 +133,7 @@ async fn main() {
         add = get_address()
     }
 
-    let full_link: String;
-    full_link = format!("http://{}:{}\n", add, port);
+    let full_link: String = format!("http://{}:{}\n", add, port);
 
     println!(
         "Serving '{}' on:\n    {}\nPress Ctrl+C to stop.\n{}",
@@ -223,9 +240,9 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
         let encoded = utf8_percent_encode(&row.name, NON_ALPHANUMERIC).to_string();
 
         let name_display = if row.is_dir {
-            format!("📁 {}", html_escape(&row.name))
+            format!("📁 {}", utils::html_escape(&row.name))
         } else {
-            format!("📄 {}", html_escape(&row.name))
+            format!("📄 {}", utils::html_escape(&row.name))
         };
 
         let size_str = if row.is_dir {
@@ -304,7 +321,7 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
             // Fallback to simple error page
             format!(
                 "<h1>Error</h1><p>Failed to load template: {}</p>",
-                html_escape(&e.to_string())
+                utils::html_escape(&e.to_string())
             )
         }
     }
@@ -331,30 +348,17 @@ fn generate_breadcrumb(current_path: &str) -> String {
         breadcrumb.push_str(" / ");
         if i == path_parts.len() - 1 {
             // Last part is not clickable
-            breadcrumb.push_str(&html_escape(part));
+            breadcrumb.push_str(&utils::html_escape(part));
         } else {
             breadcrumb.push_str(&format!(
                 "<a href=\"/browse{}\">{}</a>",
                 encoded_path,
-                html_escape(part)
+                utils::html_escape(part)
             ));
         }
     }
 
     breadcrumb
-}
-
-fn html_escape(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            '<' => "&lt;".to_string(),
-            '>' => "&gt;".to_string(),
-            '"' => "&quot;".to_string(),
-            '\'' => "&#39;".to_string(),
-            '&' => "&amp;".to_string(),
-            _ => c.to_string(),
-        })
-        .collect()
 }
 
 async fn download_file(
@@ -435,8 +439,16 @@ async fn safe_open(root: &Path, target: &Path) -> Result<(fs::File, String), (St
 }
 
 fn error_page(msg: &str) -> String {
-    format!(
-        "<h1>Error while loading page.</h1><p>{}</p>",
-        html_escape(msg)
-    )
+    match load_error_template() {
+        Ok(template) => template.replace("{error_message}", &utils::html_escape(msg)),
+        Err(e) => {
+            log::error!("Error loading error template: {}", e);
+            // Fallback to simple error page
+            format!(
+                "<h1>Error</h1><p>Failed to load error template: {}</p><p>Error: {}</p>",
+                utils::html_escape(&e.to_string()),
+                utils::html_escape(msg)
+            )
+        }
+    }
 }

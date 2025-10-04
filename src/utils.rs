@@ -1,6 +1,6 @@
-use std::env;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use qrcode::{render::svg, render::unicode, QrCode};
+use std::env;
 pub fn get_qr_code(text: &str) -> String {
     let code = QrCode::new(text).unwrap();
 
@@ -31,6 +31,19 @@ pub fn get_qr_code(text: &str) -> String {
     }
 }
 
+pub fn html_escape(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '<' => "&lt;".to_string(),
+            '>' => "&gt;".to_string(),
+            '"' => "&quot;".to_string(),
+            '\'' => "&#39;".to_string(),
+            '&' => "&amp;".to_string(),
+            _ => c.to_string(),
+        })
+        .collect()
+}
+
 fn terminal_supports_images() -> Option<&'static str> {
     match env::var("TERM_PROGRAM") {
         Ok(val) if val == "iTerm.app" => return Some("iterm2"),
@@ -44,7 +57,6 @@ fn terminal_supports_images() -> Option<&'static str> {
 
     None
 }
-
 
 pub fn bytes_to_human_size(bytes: u64) -> String {
     const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -60,7 +72,6 @@ pub fn bytes_to_human_size(bytes: u64) -> String {
         format!("{:.2} {}", size, UNITS[unit])
     }
 }
-
 
 pub fn start_logging(output_path: &str) {
     use log::LevelFilter;
