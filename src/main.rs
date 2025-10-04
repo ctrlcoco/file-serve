@@ -1,3 +1,5 @@
+mod utils;
+
 use axum::{
     body::Body,
     extract::{ConnectInfo, Path as AxumPath, State},
@@ -6,12 +8,12 @@ use axum::{
     routing::get,
     Router,
 };
-use base64::{engine::general_purpose::STANDARD, Engine};
+
 use chrono::{DateTime, Local};
 use clap::{Arg, Command};
 use log;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use qrcode::{render::svg, render::unicode, QrCode};
+
 use std::{
     env,
     net::SocketAddr,
@@ -32,42 +34,6 @@ struct FileRow {
     size: u64,
     modified: Option<SystemTime>,
     is_dir: bool,
-}
-
-fn start_logging(output_path: &str) {
-    use log::LevelFilter;
-    use log4rs::append::file::FileAppender;
-    use log4rs::config::{Appender, Config, Root};
-    use log4rs::encode::pattern::PatternEncoder;
-
-    let logfile = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(
-            "[{d(%d-%m-%y %H:%M:%S)}] {l} - {m}{n}",
-        )))
-        .build(output_path)
-        .unwrap();
-
-    let config = Config::builder()
-        .appender(Appender::builder().build("logfile", Box::new(logfile)))
-        .build(Root::builder().appender("logfile").build(LevelFilter::Info))
-        .unwrap();
-
-    log4rs::init_config(config).unwrap();
-}
-
-fn bytes_to_human_size(bytes: u64) -> String {
-    const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
-    let mut size = bytes as f64;
-    let mut unit = 0;
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{} {}", bytes, UNITS[unit])
-    } else {
-        format!("{:.2} {}", size, UNITS[unit])
-    }
 }
 
 // Global template cache
@@ -93,7 +59,7 @@ fn load_template() -> Result<String, Box<dyn std::error::Error>> {
 
 #[tokio::main]
 async fn main() {
-    start_logging("logs/file_serve.log");
+    utils::start_logging("logs/file_serve.log");
 
     let matches = Command::new("file-serve")
         .version("0.6")
@@ -142,22 +108,22 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let mut full_link = "".to_string();
+    let add: String;
     if let Some(f) = matches.get_one::<String>("interface") {
-        //full_link.push(f.as_str().parse().unwrap());
-
-        full_link = format!("http://{}:{}\n", f, port);
+        add = format!("{}", f);
     } else {
-        get_lan_url(port);
+        add = get_address()
     }
 
-    println!(
-        "Serving '{}' on:\n    {}\nPress Ctrl+C to stop.\n",
-        state.root.display(),
-        full_link
-    );
+    let full_link: String;
+    full_link = format!("http://{}:{}\n", add, port);
 
-    show_qr_code(&full_link);
+    println!(
+        "Serving '{}' on:\n    {}\nPress Ctrl+C to stop.\n{}",
+        state.root.display(),
+        full_link,
+        utils::get_qr_code(&full_link)
+    );
 
     match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => {
@@ -172,25 +138,19 @@ async fn main() {
     }
 }
 
-fn get_lan_url(port: u16) -> String {
-    let mut out = String::new();
-
+fn get_address() -> String {
     if let Ok(interfaces) = get_if_addrs::get_if_addrs() {
         for interface in interfaces {
             if interface.is_loopback() {
                 continue;
             }
             if let std::net::IpAddr::V4(v4) = interface.ip() {
-                out.push_str(&format!("http://{}:{}\n", v4, port));
-                break; // use the first found
+                return format!("{}", v4); // use the first found
             }
         }
     }
     // loopback for testing purpose
-    if out.is_empty() {
-        out.push_str(&format!("http://127.0.01:{}\n", port));
-    }
-    out
+    "127.0.01".to_string()
 }
 
 async fn list_files(
@@ -271,7 +231,7 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
         let size_str = if row.is_dir {
             "-".to_string()
         } else {
-            bytes_to_human_size(row.size)
+            utils::bytes_to_human_size(row.size)
         };
 
         let modified_str = row
@@ -292,19 +252,13 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
         };
 
         let action = if row.is_dir {
-            format!(
-                "<a class=\"btn\" href=\"/browse/{}\">Open</a>",
-                element_path
-            )
+            format!("browse/{}\">Open", element_path)
         } else {
-            format!(
-                "<a class=\"btn\" href=\"/download/{}\">Download</a>",
-                element_path
-            )
+            format!("download/{}\">Download", element_path)
         };
 
         file_rows.push_str(&format!(
-            "<tr>\n  <td class=\"truncate\">{}</td>\n  <td>{}</td>\n  <td>{}</td>\n  <td>{}</td>\n</tr>",
+            "<tr>\n  <td class=\"truncate\">{}</td>\n  <td>{}</td>\n  <td>{}</td>\n  <td><a class=\"btn\"href=\"/{}/<a></td>\n</tr>",
             name_display, size_str, modified_str, action
         ));
     }
@@ -338,6 +292,7 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
                 )
             };
 
+            // loading data into template
             template
                 .replace("{title_suffix}", &title_suffix)
                 .replace("{breadcrumb}", &breadcrumb)
@@ -484,48 +439,4 @@ fn error_page(msg: &str) -> String {
         "<h1>Error while loading page.</h1><p>{}</p>",
         html_escape(msg)
     )
-}
-
-fn terminal_supports_images() -> Option<&'static str> {
-    match env::var("TERM_PROGRAM") {
-        Ok(val) if val == "iTerm.app" => return Some("iterm2"),
-        _ => {}
-    }
-
-    match env::var("TERM") {
-        Ok(val) if val.contains("kitty") => return Some("kitty"),
-        _ => {}
-    }
-
-    None
-}
-
-fn show_qr_code(text: &str) {
-    let code = QrCode::new(text).unwrap();
-
-    match terminal_supports_images() {
-        Some("iterm2") => {
-            // Render SVG and encode for iTerm2 inline image protocol
-            let svg = code.render::<svg::Color>().min_dimensions(200, 200).build();
-
-            let encoded = STANDARD.encode(svg.as_bytes());
-
-            println!(
-                "\x1b]1337;File=inline=1;width=auto;height=auto;preserveAspectRatio=1:{}\x07",
-                encoded
-            );
-        }
-        Some("kitty") => {
-            // Kitty uses its own graphics protocol
-            let svg = code.render::<svg::Color>().min_dimensions(200, 200).build();
-            let encoded = STANDARD.encode(svg.as_bytes());
-
-            println!("\x1b_Gf=100,t=d,A=T,width=200,height=200;{}\x1b\\", encoded);
-        }
-        _ => {
-            // Fallback to ASCII QR for others terminal
-            let ascii_qr = code.render::<unicode::Dense1x2>().quiet_zone(true).build();
-            println!("{}", ascii_qr);
-        }
-    }
 }

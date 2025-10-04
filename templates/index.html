@@ -2,19 +2,19 @@
 <html lang="en">
 
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>LAN File Server{title_suffix}</title>
     <style>
         :root {
-            --bg: #1e1e1e;         /* Dark background */
-            --card: #2a2a2a;       /* Card / table background */
-            --text: #e0e0e0;       /* Main text */
-            --muted: #9ca3af;      /* Muted text */
-            --border: #3a3a3a;     /* Borders */
-            --primary: #d39b47;    /* Gold accent (header/buttons) */
-            --primary-600: #b17f33;/* Darker gold for hover/border */
-            --row-alt: #242424;    /* Alternate row background */
+            --bg: #1e1e1e; /* Dark background */
+            --card: #2a2a2a; /* Card / table background */
+            --text: #e0e0e0; /* Main text */
+            --muted: #9ca3af; /* Muted text */
+            --border: #3a3a3a; /* Borders */
+            --primary: #d39b47; /* Gold accent (header/buttons) */
+            --primary-600: #b17f33; /* Darker gold for hover/border */
+            --row-alt: #242424; /* Alternate row background */
         }
 
         @media (prefers-color-scheme: light) {
@@ -24,12 +24,11 @@
                 --text: #1f1f1f;
                 --muted: #6b7280;
                 --border: #e0e0e0;
-                --primary: #d39b47;   /* Keep accent consistent */
+                --primary: #d39b47; /* Keep accent consistent */
                 --primary-600: #b17f33;
                 --row-alt: #f2f2f2;
             }
         }
-
 
         html,
         body {
@@ -168,27 +167,27 @@
 </head>
 
 <body>
-    <div class="container">
-        <h1>Files listing{title_suffix}</h1>
-        <div class="breadcrumb">{breadcrumb}</div>
-        {back_button}
-        <div class="card table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Size</th>
-                        <th>Modified</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {file_rows}
-                </tbody>
-            </table>
-        </div>
-        <div class="footer">Accessible over LAN.</div>
+<div class="container">
+    <h1>Files listing{title_suffix}</h1>
+    <div class="breadcrumb">{breadcrumb}</div>
+    {back_button}
+    <div class="card table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th>Action</th>
+            </tr>
+            </thead>
+            <tbody>
+            {file_rows}
+            </tbody>
+        </table>
     </div>
+    <div class="footer">Accessible over LAN.</div>
+</div>
 </body>
 
 </html>
