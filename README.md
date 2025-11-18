@@ -1,6 +1,6 @@
 # file-serve
 
-Transfer files via LAN, pointlessly written in rust with [axum](https://docs.rs/axum/latest/axum/).
+Transfer files unidirectionally via LAN, pointlessly written in rust with [axum](https://docs.rs/axum/latest/axum/).
 
 ---
 
