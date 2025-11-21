@@ -42,6 +42,7 @@ lazy_static::lazy_static! {
     static ref ERROR_TEMPLATE: Mutex<Option<String>> = Mutex::new(None);
 }
 
+// loads templates from cache, if template is none read from template file
 fn load_template() -> Result<String, Box<dyn std::error::Error>> {
     let mut template = MAIN_TEMPLATE.lock().unwrap();
 
@@ -59,6 +60,7 @@ fn load_template() -> Result<String, Box<dyn std::error::Error>> {
         .ok_or_else(|| "Template not loaded".into())
 }
 
+// load the error page to be displayed
 fn load_error_template() -> Result<String, Box<dyn std::error::Error>> {
     let mut template = ERROR_TEMPLATE.lock().unwrap();
 
@@ -177,12 +179,13 @@ async fn list_files(
     path: Option<AxumPath<String>>,
 ) -> impl IntoResponse {
     log::info!(
-        "[LIST] Client: {} | UA: {}",
+        "[LIST] Client: {} | UA: {} | Via {}",
         addr,
         headers
             .get(header::USER_AGENT)
             .and_then(|h| h.to_str().ok())
-            .unwrap_or("-")
+            .unwrap_or("-"),
+        headers.get("via").and_then(|h| h.to_str().ok()).unwrap_or("-")
     );
 
     // Determine the directory to list
