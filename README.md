@@ -48,7 +48,7 @@ In the same executable folder a log file will be created:
 ---
 
 ## TO-DO
-- Better system with the system.
+- Better system integration.
 - Make an entire folder downloadable.
 
 ## Reporting a Vulnerability
