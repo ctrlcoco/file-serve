@@ -5,7 +5,7 @@ Transfer files unidirectionally via LAN, pointlessly written in rust with [axum]
 ---
 
 ## Usage
-
+- Run the executable.
 ```
 Usage: file-serve [OPTIONS]
 
@@ -17,7 +17,18 @@ Options:
   -V, --version        Print version
 ```
 
-Navigate to the shown link. 
+- Navigate to bound link. 
+
+The webpage will show as follows:
+![alt text](images/demo.png "Webpage")
+
+Running from a terminal emulator shows the output:
+![alt text](images/terminal-demo.png "Terminal")
+
+In the same executable folder a log file will be created:
+![alt text](images/log-example.png "log")
+
+**The software is not intended for production environment.**
 
 ---
 
@@ -34,11 +45,11 @@ Navigate to the shown link.
    ```
    cargo build --release
    ```
-4. Run it. (E.g. sharing documents folder)
-   ```
-   ./file-serve ~/Documents
-   ```
 ---
+
+## TO-DO
+- Better system with the system.
+- Make an entire folder downloadable.
 
 ## Reporting a Vulnerability
 

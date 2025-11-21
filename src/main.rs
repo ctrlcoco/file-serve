@@ -275,7 +275,7 @@ fn render_index(rows: Vec<FileRow>, current_path: &str) -> String {
         };
 
         file_rows.push_str(&format!(
-            "<tr>\n  <td class=\"truncate\">{}</td>\n  <td>{}</td>\n  <td>{}</td>\n  <td><a class=\"btn\"href=\"/{}/<a></td>\n</tr>",
+            "<tr>\n  <td class=\"truncate\">{}</td>\n  <td>{}</td>\n  <td>{}</td>\n  <td><a class=\"btn\"href=\"/{}<a></td>\n</tr>",
             name_display, size_str, modified_str, action
         ));
     }
